@@ -6,40 +6,39 @@ async function loadEmojiMapping() {
         throw new Error('Network response was not ok ' + response.statusText)
     }
     
-    return await response.json()
+    const data = await response.json();
+    const map = new Map();
+    for (const [emoji, words] of Object.entries(data)) {
+        for (const word of words) {
+            map.set(word.toLowerCase(), emoji);
+        }
+    }
+    return map;
 }
 
 async function modifyTextNodes(node, callback) {
     if (node.nodeType === Node.TEXT_NODE) {
-        if (node.parentNode && node.parentNode.nodeName !== 'SCRIPT') {
+        if (node.parentNode && node.parentNode.nodeName !== 'SCRIPT' && !node.parentNode.classList.contains('tte-nochange')) {
             node.textContent = await callback(node.textContent)
         }
     } else {
         for (let child of node.childNodes) {
-            await modifyTextNodes(child, callback) // let's do it recursively
+            if (!child.classList || !child.classList.contains('nochange')) {
+                await modifyTextNodes(child, callback);
+            }
         }
     }
 }
 
 function getEmoji(word, mapping) {
-    for (let i = 0; i < mapping.length; i++) {
-        if (find(word, mapping[i])) {
-            return mapping[word]
-        }
-    }
-
-    return mapping[word] || ""
-}
-
-function find(txt, src) {
-    var re = new RegExp(txt.split('').map(function(a,b,c){ return txt.substr(0, b)+a+'?.?'+ txt.substr(b+1);}).join('|'),'gi') // why does regex have to be so complicated?
-
-    return src.match(re) != null
+    return mapping.get(word.toLowerCase().replace(/[^a-z0-9]/gi, '').trim()) || "";
 }
 
 function tokenize(input) {
-    return input.split(/\s+/g)
+    // Aggiustamento della regex per includere l'apostrofo come parte di una parola
+    return input.split(/(\s+|[.,;:?!()_'"\[\]{}<>+\-*\/=@#$%^&])/g);
 }
+
   
 async function stringAnalyzer(text, mapping) {
     var tokens = tokenize(text)
@@ -47,12 +46,16 @@ async function stringAnalyzer(text, mapping) {
     const promises = tokens.map(word => analyzeAndReplaceWord(word, mapping))
     const newWords = await Promise.all(promises)
 
-    return newWords.join(" ")
+    return newWords.join("")
 }
 
 async function analyzeAndReplaceWord(word, mapping) {
+    if (/^[\s.,;:?!()_'"[\]{}<>+\-*\/=@#$%^&]*$/.test(word)) {
+        return word;
+    }
+
     try {
-        const response = getEmoji(word.toLowerCase().replace(/[^a-z0-9_\s]/g, '').trim(), mapping)
+        const response = getEmoji(word, mapping)
         if (response.length > 0) {
             console.log('Replaced:', word, 'with:', response)
             return response
